@@ -240,8 +240,9 @@
             background: rgba(0, 0, 0, 0.4);
             padding: 20px;
             position: relative;
-            cursor: pointer;
             transition: all 0.3s;
+            display: flex;
+            flex-direction: column;
         }
 
         .node-card:hover {
@@ -275,13 +276,58 @@
         .node-ip {
             font-size: 12px;
             opacity: 0.7;
+            margin-bottom: 10px;
         }
 
         .node-status {
-            margin-top: 10px;
             font-size: 10px;
             text-transform: uppercase;
             color: var(--primary);
+            margin-bottom: 15px;
+        }
+
+        .node-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: auto;
+        }
+
+        .node-action-btn {
+            flex: 1;
+            padding: 8px 10px;
+            border: 1px solid;
+            background: rgba(0, 0, 0, 0.3);
+            color: white;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            transition: all 0.3s;
+            text-transform: uppercase;
+        }
+
+        .node-action-btn.private {
+            border-color: var(--secondary);
+            color: var(--secondary);
+        }
+
+        .node-action-btn.private:hover {
+            background: var(--secondary);
+            color: black;
+        }
+
+        .node-action-btn.delete {
+            border-color: rgb(255, 100, 100);
+            color: rgb(255, 100, 100);
+        }
+
+        .node-action-btn.delete:hover {
+            background: rgb(255, 100, 100);
+            color: white;
+        }
+
+        .node-action-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
         }
 
         .comm-button {
@@ -378,6 +424,7 @@
             max-width: 60%;
             font-size: 12px;
             word-wrap: break-word;
+            white-space: normal;
         }
 
         .message.sent .message-bubble {
@@ -408,6 +455,8 @@
             padding: 8px 12px;
             font-family: 'Courier New', monospace;
             outline: none;
+            font-size: 12px;
+            white-space: pre-wrap;
         }
 
         .input-field::placeholder {
@@ -521,6 +570,11 @@
             padding-left: 10px;
         }
 
+        .private-chat-header {
+            color: var(--secondary);
+            font-size: 10px;
+        }
+
         @keyframes blink {
             0%, 50% { opacity: 1; }
             51%, 100% { opacity: 0; }
@@ -550,6 +604,7 @@
             const [inputValue, setInputValue] = useState("");
             const [inviteIP, setInviteIP] = useState("");
             const [inviteMessage, setInviteMessage] = useState("");
+            const [privateChat, setPrivateChat] = useState(null);
             
             const broadcastChannelRef = useRef(null);
 
@@ -627,11 +682,11 @@
 
             // Reload messages periodically when modal is open
             useEffect(() => {
-                if (modalOpen && user) {
+                if ((modalOpen || privateChat) && user) {
                     const interval = setInterval(loadMessages, 500);
                     return () => clearInterval(interval);
                 }
-            }, [modalOpen, user]);
+            }, [modalOpen, privateChat, user]);
 
             const generateIdentity = () => {
                 const octet = () => Math.floor(Math.random() * 256);
@@ -747,7 +802,8 @@
                     id: Date.now(),
                     senderIp: user.virtualIp,
                     senderDevice: user.deviceName,
-                    content: inputValue,
+                    recipientIp: privateChat ? privateChat.virtualIp : null,
+                    content: inputValue.trim(),
                     createdAt: new Date().toISOString()
                 };
 
@@ -763,6 +819,24 @@
                 setInputValue("");
             };
 
+            const handleDeleteNode = (nodeIp) => {
+                if (nodeIp === user.virtualIp) {
+                    alert("Vous ne pouvez pas supprimer votre propre nœud!");
+                    return;
+                }
+                
+                const users = JSON.parse(localStorage.getItem("cyber_net_users") || "[]");
+                const filtered = users.filter(u => u.virtualIp !== nodeIp);
+                localStorage.setItem("cyber_net_users", JSON.stringify(filtered));
+                
+                broadcastChannelRef.current?.postMessage({
+                    type: 'update_nodes',
+                    data: filtered
+                });
+                
+                setNodes(filtered);
+            };
+
             const handleLogout = () => {
                 localStorage.removeItem("cyber_net_ip");
                 localStorage.removeItem("cyber_net_device");
@@ -775,8 +849,16 @@
 
             const openModal = () => {
                 setModalOpen(true);
+                setPrivateChat(null);
                 loadMessages();
             };
+
+            const filteredMessages = privateChat 
+                ? messages.filter(m => 
+                    (m.senderIp === user.virtualIp && m.recipientIp === privateChat.virtualIp) ||
+                    (m.senderIp === privateChat.virtualIp && m.recipientIp === user.virtualIp)
+                  )
+                : messages.filter(m => !m.recipientIp);
 
             if (page === 'auth') {
                 return (
@@ -845,29 +927,58 @@
                                         <div className="node-name">{node.deviceName}</div>
                                         <div className="node-ip">{node.virtualIp}</div>
                                         <div className="node-status">{node.virtualIp === user.virtualIp ? ':: CURRENT SESSION ::' : '• ONLINE'}</div>
+                                        
+                                        {node.virtualIp !== user.virtualIp && (
+                                            <div className="node-actions">
+                                                <button 
+                                                    className="node-action-btn private"
+                                                    onClick={() => {
+                                                        setPrivateChat(node);
+                                                        setModalOpen(true);
+                                                    }}
+                                                >
+                                                    PRIVÉ
+                                                </button>
+                                                <button 
+                                                    className="node-action-btn delete"
+                                                    onClick={() => handleDeleteNode(node.virtualIp)}
+                                                >
+                                                    SUPPR
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
                                 ))}
                             </div>
                         </div>
 
-                        <button className="comm-button" onClick={openModal} title="Open Communication">
+                        <button className="comm-button" onClick={openModal} title="Open Public Communication">
                             💬
                         </button>
 
                         <div className={`modal ${!modalOpen ? 'modal-hidden' : ''}`}>
                             <div className="modal-content">
                                 <div className="modal-header">
-                                    <div>SECURE CHANNEL // ENCRYPTED</div>
-                                    <button className="modal-close" onClick={() => setModalOpen(false)}>✕</button>
+                                    <div>
+                                        {privateChat ? (
+                                            <div>
+                                                <div className="private-chat-header">PRIVATE CHAT</div>
+                                                <div>{privateChat.deviceName} ({privateChat.virtualIp})</div>
+                                            </div>
+                                        ) : (
+                                            <div>SECURE CHANNEL // ENCRYPTED</div>
+                                        )}
+                                    </div>
+                                    <button className="modal-close" onClick={() => {setModalOpen(false); setPrivateChat(null);}}>✕</button>
                                 </div>
 
                                 <div className="messages-container">
-                                    {messages.length === 0 ? (
+                                    {filteredMessages.length === 0 ? (
                                         <div style={{opacity: 0.5, textAlign: 'center', margin: 'auto'}}>
                                             Awaiting transmissions...
                                         </div>
                                     ) : (
-                                        messages.map((msg) => (
+                                        filteredMessages.map((msg) => (
                                             <div key={msg.id} className={`message ${msg.senderIp === user.virtualIp ? 'sent' : ''}`}>
                                                 <div>
                                                     <div style={{fontSize: '10px', opacity: '0.5', marginBottom: '3px'}}>
@@ -888,7 +999,7 @@
                                         <input 
                                             type="text"
                                             className="input-field"
-                                            placeholder="Enter command sequence..."
+                                            placeholder={privateChat ? `Message privé à ${privateChat.deviceName}...` : "Entrez votre message..."}
                                             value={inputValue}
                                             onChange={(e) => setInputValue(e.target.value)}
                                             autoFocus
