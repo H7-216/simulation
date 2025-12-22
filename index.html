@@ -57,7 +57,6 @@
             flex-direction: column;
         }
 
-        /* AUTH PAGE */
         .auth-page {
             display: flex;
             align-items: center;
@@ -166,7 +165,6 @@
             cursor: not-allowed;
         }
 
-        /* HOME PAGE */
         .home-page {
             display: flex;
             flex-direction: column;
@@ -269,7 +267,6 @@
             color: var(--primary);
         }
 
-        /* COMMUNICATION MODAL */
         .comm-button {
             position: fixed;
             bottom: 30px;
@@ -430,15 +427,6 @@
             color: white;
         }
 
-        .error-msg {
-            background: rgba(255, 0, 0, 0.1);
-            border: 1px solid rgb(255, 0, 0);
-            color: rgb(255, 100, 100);
-            padding: 10px;
-            margin-bottom: 10px;
-            font-size: 12px;
-        }
-
         @keyframes blink {
             0%, 50% { opacity: 1; }
             51%, 100% { opacity: 0; }
@@ -465,32 +453,29 @@
             const [messages, setMessages] = useState([]);
             const [modalOpen, setModalOpen] = useState(false);
             const [inputValue, setInputValue] = useState("");
-            const [isLoading, setIsLoading] = useState(false);
-            const [error, setError] = useState("");
 
             const fullText = "INITIALIZING SYSTEM...\nESTABLISHING SECURE CONNECTION...\nGENERATING VIRTUAL IDENTITY...";
 
-            // Get API base URL - works for localhost:5000 and any server
-            const getApiUrl = () => {
-                const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-                if (isDev && window.location.port === '') {
-                    return 'http://localhost:5000';
-                }
-                return `${window.location.protocol}//${window.location.host}`;
-            };
-            const API_URL = getApiUrl();
-
-            // Load user from localStorage
+            // Initialize from localStorage
             useEffect(() => {
                 const savedIp = localStorage.getItem("cyber_net_ip");
                 const savedDevice = localStorage.getItem("cyber_net_device");
+                
+                // Initialize users list if empty
+                if (!localStorage.getItem("cyber_net_users")) {
+                    localStorage.setItem("cyber_net_users", JSON.stringify([]));
+                }
+                
+                // Initialize messages list if empty
+                if (!localStorage.getItem("cyber_net_messages")) {
+                    localStorage.setItem("cyber_net_messages", JSON.stringify([]));
+                }
+                
                 if (savedIp && savedDevice) {
-                    setUser({ virtualIp: savedIp, deviceName: savedDevice });
+                    const currentUser = { virtualIp: savedIp, deviceName: savedDevice };
+                    setUser(currentUser);
                     setPage('home');
-                    setTimeout(() => {
-                        loadNodes();
-                        loadMessages();
-                    }, 100);
+                    loadNodes();
                 }
             }, []);
 
@@ -510,20 +495,21 @@
                 }
             }, [page, identity]);
 
-            // Load nodes periodically
+            // Reload nodes periodically
             useEffect(() => {
                 if (page === 'home' && user) {
-                    loadNodes();
-                    const interval = setInterval(loadNodes, 3000);
+                    const interval = setInterval(loadNodes, 2000);
                     return () => clearInterval(interval);
                 }
             }, [page, user]);
 
-            // Load messages periodically
+            // Reload messages periodically
             useEffect(() => {
                 if (modalOpen && user) {
-                    loadMessages();
-                    const interval = setInterval(loadMessages, 2000);
+                    const interval = setInterval(() => {
+                        const storedMessages = JSON.parse(localStorage.getItem("cyber_net_messages") || "[]");
+                        setMessages(storedMessages);
+                    }, 1000);
                     return () => clearInterval(interval);
                 }
             }, [modalOpen, user]);
@@ -531,93 +517,65 @@
             const generateIdentity = () => {
                 const octet = () => Math.floor(Math.random() * 256);
                 const ip = `10.${octet()}.${octet()}.${octet()}`;
-                const devices = ["NEXUS", "GHOST", "PHANTOM", "SPECTRE", "CYPHER", "DAEMON"];
+                const devices = ["NEXUS", "GHOST", "PHANTOM", "SPECTRE", "CYPHER", "DAEMON", "VORTEX", "SHADOW"];
                 const id = Math.floor(Math.random() * 9999).toString().padStart(4, '0');
                 const device = `${devices[Math.floor(Math.random() * devices.length)]}-${id}`;
                 setIdentity({ virtualIp: ip, deviceName: device });
             };
 
-            const handleInitialize = async () => {
+            const handleInitialize = () => {
                 if (!identity) return;
-                setIsLoading(true);
-                setError("");
-                try {
-                    console.log("Logging in to:", API_URL + "/api/auth/login");
-                    const response = await fetch(API_URL + "/api/auth/login", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            virtualIp: identity.virtualIp,
-                            deviceName: identity.deviceName
-                        })
-                    });
-                    
-                    if (response.ok) {
-                        const data = await response.json();
-                        localStorage.setItem("cyber_net_ip", data.virtualIp);
-                        localStorage.setItem("cyber_net_device", data.deviceName);
-                        setUser(data);
-                        setPage('home');
-                        setTimeout(() => {
-                            loadNodes();
-                            loadMessages();
-                        }, 100);
-                    } else {
-                        setError("Login failed: " + response.statusText);
-                    }
-                } catch (error) {
-                    console.error("Login error:", error);
-                    setError("Connection error: " + error.message);
-                } finally {
-                    setIsLoading(false);
+
+                // Save user
+                localStorage.setItem("cyber_net_ip", identity.virtualIp);
+                localStorage.setItem("cyber_net_device", identity.deviceName);
+
+                // Add user to nodes list
+                const users = JSON.parse(localStorage.getItem("cyber_net_users") || "[]");
+                const newUser = {
+                    id: Date.now(),
+                    virtualIp: identity.virtualIp,
+                    deviceName: identity.deviceName,
+                    lastSeen: new Date().toISOString(),
+                    isOnline: true
+                };
+
+                // Check if user already exists
+                const existingIndex = users.findIndex(u => u.virtualIp === identity.virtualIp);
+                if (existingIndex === -1) {
+                    users.push(newUser);
+                } else {
+                    users[existingIndex] = newUser;
                 }
+
+                localStorage.setItem("cyber_net_users", JSON.stringify(users));
+
+                setUser(newUser);
+                setPage('home');
+                loadNodes();
             };
 
-            const loadNodes = async () => {
-                try {
-                    const response = await fetch(API_URL + "/api/users");
-                    if (response.ok) {
-                        const data = await response.json();
-                        setNodes(data);
-                    }
-                } catch (error) {
-                    console.error("Error loading nodes:", error);
-                }
+            const loadNodes = () => {
+                const users = JSON.parse(localStorage.getItem("cyber_net_users") || "[]");
+                setNodes(users);
             };
 
-            const loadMessages = async () => {
-                try {
-                    const response = await fetch(API_URL + "/api/messages");
-                    if (response.ok) {
-                        const data = await response.json();
-                        setMessages(data);
-                    }
-                } catch (error) {
-                    console.error("Error loading messages:", error);
-                }
-            };
-
-            const handleSendMessage = async (e) => {
+            const handleSendMessage = (e) => {
                 e.preventDefault();
                 if (!inputValue.trim() || !user) return;
-                
-                try {
-                    const response = await fetch(API_URL + "/api/messages", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            senderIp: user.virtualIp,
-                            content: inputValue
-                        })
-                    });
-                    
-                    if (response.ok) {
-                        setInputValue("");
-                        await loadMessages();
-                    }
-                } catch (error) {
-                    console.error("Error sending message:", error);
-                }
+
+                const messages = JSON.parse(localStorage.getItem("cyber_net_messages") || "[]");
+                const newMessage = {
+                    id: Date.now(),
+                    senderIp: user.virtualIp,
+                    content: inputValue,
+                    createdAt: new Date().toISOString()
+                };
+
+                messages.push(newMessage);
+                localStorage.setItem("cyber_net_messages", JSON.stringify(messages));
+                setMessages(messages);
+                setInputValue("");
             };
 
             const handleLogout = () => {
@@ -627,6 +585,14 @@
                 setPage('auth');
                 setIdentity(null);
                 setText("");
+                setMessages([]);
+            };
+
+            // Open modal and load messages
+            const openModal = () => {
+                setModalOpen(true);
+                const storedMessages = JSON.parse(localStorage.getItem("cyber_net_messages") || "[]");
+                setMessages(storedMessages);
             };
 
             if (page === 'auth') {
@@ -635,8 +601,6 @@
                         <div className="terminal-card">
                             <div className="terminal-title">SYSTEM ACCESS</div>
                             <div className="terminal-text">{text}<span style={{animation: 'blink 1s infinite'}}>_</span></div>
-                            
-                            {error && <div className="error-msg">{error}</div>}
                             
                             {identity && (
                                 <div style={{ animation: 'fadeIn 0.5s' }}>
@@ -657,9 +621,8 @@
                                     <button 
                                         className="cyber-button" 
                                         onClick={handleInitialize}
-                                        disabled={isLoading}
                                     >
-                                        {isLoading ? "UPLOADING..." : "INITIALIZE SEQUENCE >>"}
+                                        INITIALIZE SEQUENCE >>
                                     </button>
                                 </div>
                             )}
@@ -703,7 +666,7 @@
                             </div>
                         </div>
 
-                        <button className="comm-button" onClick={() => setModalOpen(true)} title="Open Communication">
+                        <button className="comm-button" onClick={openModal} title="Open Communication">
                             💬
                         </button>
 
