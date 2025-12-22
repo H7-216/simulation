@@ -198,6 +198,7 @@
             display: flex;
             gap: 20px;
             font-size: 12px;
+            align-items: center;
         }
 
         .main-content {
@@ -428,6 +429,24 @@
             background: rgb(255, 0, 0);
             color: white;
         }
+
+        .error-msg {
+            background: rgba(255, 0, 0, 0.1);
+            border: 1px solid rgb(255, 0, 0);
+            color: rgb(255, 100, 100);
+            padding: 10px;
+            margin-bottom: 10px;
+            font-size: 12px;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
     </style>
 </head>
 <body>
@@ -447,8 +466,19 @@
             const [modalOpen, setModalOpen] = useState(false);
             const [inputValue, setInputValue] = useState("");
             const [isLoading, setIsLoading] = useState(false);
+            const [error, setError] = useState("");
 
             const fullText = "INITIALIZING SYSTEM...\nESTABLISHING SECURE CONNECTION...\nGENERATING VIRTUAL IDENTITY...";
+
+            // Get API base URL - works for localhost:5000 and any server
+            const getApiUrl = () => {
+                const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+                if (isDev && window.location.port === '') {
+                    return 'http://localhost:5000';
+                }
+                return `${window.location.protocol}//${window.location.host}`;
+            };
+            const API_URL = getApiUrl();
 
             // Load user from localStorage
             useEffect(() => {
@@ -457,8 +487,10 @@
                 if (savedIp && savedDevice) {
                     setUser({ virtualIp: savedIp, deviceName: savedDevice });
                     setPage('home');
-                    loadNodes();
-                    loadMessages();
+                    setTimeout(() => {
+                        loadNodes();
+                        loadMessages();
+                    }, 100);
                 }
             }, []);
 
@@ -480,19 +512,21 @@
 
             // Load nodes periodically
             useEffect(() => {
-                if (page === 'home') {
+                if (page === 'home' && user) {
+                    loadNodes();
                     const interval = setInterval(loadNodes, 3000);
                     return () => clearInterval(interval);
                 }
-            }, [page]);
+            }, [page, user]);
 
             // Load messages periodically
             useEffect(() => {
-                if (modalOpen) {
+                if (modalOpen && user) {
+                    loadMessages();
                     const interval = setInterval(loadMessages, 2000);
                     return () => clearInterval(interval);
                 }
-            }, [modalOpen]);
+            }, [modalOpen, user]);
 
             const generateIdentity = () => {
                 const octet = () => Math.floor(Math.random() * 256);
@@ -506,8 +540,10 @@
             const handleInitialize = async () => {
                 if (!identity) return;
                 setIsLoading(true);
+                setError("");
                 try {
-                    const response = await fetch("http://localhost:5000/api/auth/login", {
+                    console.log("Logging in to:", API_URL + "/api/auth/login");
+                    const response = await fetch(API_URL + "/api/auth/login", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
@@ -522,11 +558,16 @@
                         localStorage.setItem("cyber_net_device", data.deviceName);
                         setUser(data);
                         setPage('home');
-                        loadNodes();
-                        loadMessages();
+                        setTimeout(() => {
+                            loadNodes();
+                            loadMessages();
+                        }, 100);
+                    } else {
+                        setError("Login failed: " + response.statusText);
                     }
                 } catch (error) {
                     console.error("Login error:", error);
+                    setError("Connection error: " + error.message);
                 } finally {
                     setIsLoading(false);
                 }
@@ -534,7 +575,7 @@
 
             const loadNodes = async () => {
                 try {
-                    const response = await fetch("http://localhost:5000/api/users");
+                    const response = await fetch(API_URL + "/api/users");
                     if (response.ok) {
                         const data = await response.json();
                         setNodes(data);
@@ -546,7 +587,7 @@
 
             const loadMessages = async () => {
                 try {
-                    const response = await fetch("http://localhost:5000/api/messages");
+                    const response = await fetch(API_URL + "/api/messages");
                     if (response.ok) {
                         const data = await response.json();
                         setMessages(data);
@@ -561,7 +602,7 @@
                 if (!inputValue.trim() || !user) return;
                 
                 try {
-                    const response = await fetch("http://localhost:5000/api/messages", {
+                    const response = await fetch(API_URL + "/api/messages", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
@@ -585,6 +626,7 @@
                 setUser(null);
                 setPage('auth');
                 setIdentity(null);
+                setText("");
             };
 
             if (page === 'auth') {
@@ -593,6 +635,8 @@
                         <div className="terminal-card">
                             <div className="terminal-title">SYSTEM ACCESS</div>
                             <div className="terminal-text">{text}<span style={{animation: 'blink 1s infinite'}}>_</span></div>
+                            
+                            {error && <div className="error-msg">{error}</div>}
                             
                             {identity && (
                                 <div style={{ animation: 'fadeIn 0.5s' }}>
@@ -671,19 +715,25 @@
                                 </div>
 
                                 <div className="messages-container">
-                                    {messages.map((msg) => (
-                                        <div key={msg.id} className={`message ${msg.senderIp === user.virtualIp ? 'sent' : ''}`}>
-                                            <div>
-                                                <div style={{fontSize: '10px', opacity: '0.5', marginBottom: '3px'}}>
-                                                    {msg.senderIp === user.virtualIp ? 'YOU' : msg.senderIp}
-                                                </div>
-                                                <div className="message-bubble">{msg.content}</div>
-                                                <div className="message-time">
-                                                    {new Date(msg.createdAt).toLocaleTimeString()}
+                                    {messages.length === 0 ? (
+                                        <div style={{opacity: 0.5, textAlign: 'center', margin: 'auto'}}>
+                                            Awaiting transmissions...
+                                        </div>
+                                    ) : (
+                                        messages.map((msg) => (
+                                            <div key={msg.id} className={`message ${msg.senderIp === user.virtualIp ? 'sent' : ''}`}>
+                                                <div>
+                                                    <div style={{fontSize: '10px', opacity: '0.5', marginBottom: '3px'}}>
+                                                        {msg.senderIp === user.virtualIp ? 'YOU' : msg.senderIp}
+                                                    </div>
+                                                    <div className="message-bubble">{msg.content}</div>
+                                                    <div className="message-time">
+                                                        {new Date(msg.createdAt).toLocaleTimeString()}
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        ))
+                                    )}
                                 </div>
 
                                 <div className="input-area">
@@ -710,16 +760,5 @@
 
         ReactDOM.render(<App />, document.getElementById('root'));
     </script>
-
-    <style>
-        @keyframes blink {
-            0%, 50% { opacity: 1; }
-            51%, 100% { opacity: 0; }
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-    </style>
 </body>
 </html>
