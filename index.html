@@ -536,7 +536,7 @@
     <div class="scanline"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useRef } = React;
 
         function App() {
             const [page, setPage] = useState('auth');
@@ -550,8 +550,34 @@
             const [inputValue, setInputValue] = useState("");
             const [inviteIP, setInviteIP] = useState("");
             const [inviteMessage, setInviteMessage] = useState("");
+            
+            const broadcastChannelRef = useRef(null);
 
             const fullText = "INITIALIZING SYSTEM...\nESTABLISHING SECURE CONNECTION...\nGENERATING VIRTUAL IDENTITY...";
+
+            // Initialize BroadcastChannel for cross-tab communication
+            useEffect(() => {
+                try {
+                    broadcastChannelRef.current = new BroadcastChannel('net_grid_channel');
+                    broadcastChannelRef.current.onmessage = (event) => {
+                        const { type, data } = event.data;
+                        
+                        if (type === 'update_nodes') {
+                            setNodes(data);
+                        } else if (type === 'update_messages') {
+                            setMessages(data);
+                        }
+                    };
+                } catch (e) {
+                    console.log('BroadcastChannel not available, using basic mode');
+                }
+
+                return () => {
+                    if (broadcastChannelRef.current) {
+                        broadcastChannelRef.current.close();
+                    }
+                };
+            }, []);
 
             // Initialize from localStorage
             useEffect(() => {
@@ -571,6 +597,7 @@
                     setUser(currentUser);
                     setPage('home');
                     loadNodes();
+                    loadMessages();
                 }
             }, []);
 
@@ -593,18 +620,15 @@
             // Reload nodes periodically
             useEffect(() => {
                 if (page === 'home' && user) {
-                    const interval = setInterval(loadNodes, 2000);
+                    const interval = setInterval(loadNodes, 1000);
                     return () => clearInterval(interval);
                 }
             }, [page, user]);
 
-            // Reload messages periodically
+            // Reload messages periodically when modal is open
             useEffect(() => {
                 if (modalOpen && user) {
-                    const interval = setInterval(() => {
-                        const storedMessages = JSON.parse(localStorage.getItem("cyber_net_messages") || "[]");
-                        setMessages(storedMessages);
-                    }, 1000);
+                    const interval = setInterval(loadMessages, 500);
                     return () => clearInterval(interval);
                 }
             }, [modalOpen, user]);
@@ -648,15 +672,24 @@
                 }
 
                 localStorage.setItem("cyber_net_users", JSON.stringify(users));
+                broadcastChannelRef.current?.postMessage({
+                    type: 'update_nodes',
+                    data: users
+                });
 
                 setUser(newUser);
                 setPage('home');
-                loadNodes();
+                setNodes(users);
             };
 
             const loadNodes = () => {
                 const users = JSON.parse(localStorage.getItem("cyber_net_users") || "[]");
                 setNodes(users);
+            };
+
+            const loadMessages = () => {
+                const storedMessages = JSON.parse(localStorage.getItem("cyber_net_messages") || "[]");
+                setMessages(storedMessages);
             };
 
             const handleInviteIP = () => {
@@ -673,21 +706,32 @@
                 }
 
                 const users = JSON.parse(localStorage.getItem("cyber_net_users") || "[]");
-                const existingUser = users.find(u => u.virtualIp === inviteIP);
+                let existingUser = users.find(u => u.virtualIp === inviteIP);
 
                 if (!existingUser) {
-                    setInviteMessage("Cette adresse IP n'existe pas. Assurez-vous qu'elle a été générée par le système!");
-                    return;
+                    existingUser = {
+                        id: Date.now() + Math.random(),
+                        virtualIp: inviteIP,
+                        deviceName: "REMOTE-NODE",
+                        lastSeen: new Date().toISOString(),
+                        isOnline: true
+                    };
+                    users.push(existingUser);
+                } else {
+                    existingUser.lastSeen = new Date().toISOString();
+                    existingUser.isOnline = true;
                 }
 
-                // Marquer comme en ligne et ajouter au réseau
-                existingUser.lastSeen = new Date().toISOString();
-                existingUser.isOnline = true;
                 localStorage.setItem("cyber_net_users", JSON.stringify(users));
+                broadcastChannelRef.current?.postMessage({
+                    type: 'update_nodes',
+                    data: users
+                });
 
-                setInviteMessage("Utilisateur ajouté avec succès!");
+                setNodes(users);
+                setInviteMessage("Nœud connecté avec succès!");
                 setInviteIP("");
-                loadNodes();
+                
                 setTimeout(() => {
                     setInviteModalOpen(false);
                     setInviteMessage("");
@@ -702,12 +746,19 @@
                 const newMessage = {
                     id: Date.now(),
                     senderIp: user.virtualIp,
+                    senderDevice: user.deviceName,
                     content: inputValue,
                     createdAt: new Date().toISOString()
                 };
 
                 messages.push(newMessage);
                 localStorage.setItem("cyber_net_messages", JSON.stringify(messages));
+                
+                broadcastChannelRef.current?.postMessage({
+                    type: 'update_messages',
+                    data: messages
+                });
+
                 setMessages(messages);
                 setInputValue("");
             };
@@ -724,8 +775,7 @@
 
             const openModal = () => {
                 setModalOpen(true);
-                const storedMessages = JSON.parse(localStorage.getItem("cyber_net_messages") || "[]");
-                setMessages(storedMessages);
+                loadMessages();
             };
 
             if (page === 'auth') {
@@ -790,7 +840,7 @@
                             <div className="nodes-title">ACTIVE NODES DETECTED: {nodes.length}</div>
                             <div className="nodes-grid">
                                 {nodes.map((node) => (
-                                    <div key={node.id} className={`node-card ${node.virtualIp === user.virtualIp ? 'current' : ''}`}>
+                                    <div key={node.virtualIp} className={`node-card ${node.virtualIp === user.virtualIp ? 'current' : ''}`}>
                                         <div className="node-icon">{node.virtualIp === user.virtualIp ? '⚙️' : '🖥️'}</div>
                                         <div className="node-name">{node.deviceName}</div>
                                         <div className="node-ip">{node.virtualIp}</div>
@@ -821,7 +871,7 @@
                                             <div key={msg.id} className={`message ${msg.senderIp === user.virtualIp ? 'sent' : ''}`}>
                                                 <div>
                                                     <div style={{fontSize: '10px', opacity: '0.5', marginBottom: '3px'}}>
-                                                        {msg.senderIp === user.virtualIp ? 'YOU' : msg.senderIp}
+                                                        {msg.senderIp === user.virtualIp ? 'YOU' : msg.senderDevice || msg.senderIp}
                                                     </div>
                                                     <div className="message-bubble">{msg.content}</div>
                                                     <div className="message-time">
@@ -872,7 +922,7 @@
                                     />
 
                                     {inviteMessage && (
-                                        <div className={inviteMessage.includes("succès") ? "success-msg" : "error-msg"}>
+                                        <div className={inviteMessage.includes("succès") || inviteMessage.includes("connecté") ? "success-msg" : "error-msg"}>
                                             {inviteMessage}
                                         </div>
                                     )}
