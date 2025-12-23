@@ -7,6 +7,8 @@
     <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-database.js"></script>
     <style>
         * {
             margin: 0;
@@ -69,10 +71,12 @@
             border: 2px solid var(--primary);
             background: rgba(0, 0, 0, 0.8);
             padding: 40px;
-            max-width: 600px;
+            max-width: 700px;
             width: 100%;
             box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
             position: relative;
+            max-height: 80vh;
+            overflow-y: auto;
         }
 
         .terminal-card::before {
@@ -139,6 +143,51 @@
             color: var(--secondary);
         }
 
+        .firebase-section {
+            background: rgba(0, 200, 255, 0.05);
+            border: 1px solid rgba(0, 200, 255, 0.2);
+            padding: 15px;
+            margin-bottom: 15px;
+            font-size: 11px;
+        }
+
+        .firebase-section .label {
+            opacity: 0.5;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .firebase-input {
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(0, 200, 255, 0.3);
+            color: var(--secondary);
+            padding: 8px;
+            font-family: 'Courier New', monospace;
+            width: 100%;
+            margin-bottom: 8px;
+            font-size: 11px;
+            outline: none;
+        }
+
+        .firebase-input::placeholder {
+            opacity: 0.3;
+        }
+
+        .firebase-status {
+            font-size: 10px;
+            opacity: 0.6;
+            margin-bottom: 10px;
+        }
+
+        .firebase-status.connected {
+            color: var(--primary);
+        }
+
+        .firebase-status.error {
+            color: rgb(255, 100, 100);
+        }
+
         .cyber-button {
             background: rgba(0, 255, 0, 0.1);
             border: 2px solid var(--primary);
@@ -199,6 +248,14 @@
             gap: 20px;
             font-size: 12px;
             align-items: center;
+        }
+
+        .header-status {
+            font-size: 10px;
+            padding: 4px 8px;
+            border-radius: 3px;
+            background: rgba(0, 255, 0, 0.1);
+            border: 1px solid var(--primary);
         }
 
         .invite-btn {
@@ -323,11 +380,6 @@
         .node-action-btn.delete:hover {
             background: rgb(255, 100, 100);
             color: white;
-        }
-
-        .node-action-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
         }
 
         .comm-button {
@@ -456,7 +508,7 @@
             font-family: 'Courier New', monospace;
             outline: none;
             font-size: 12px;
-            white-space: pre-wrap;
+            white-space: normal;
         }
 
         .input-field::placeholder {
@@ -605,8 +657,18 @@
             const [inviteIP, setInviteIP] = useState("");
             const [inviteMessage, setInviteMessage] = useState("");
             const [privateChat, setPrivateChat] = useState(null);
+            const [firebaseConfig, setFirebaseConfig] = useState({
+                apiKey: '',
+                projectId: '',
+                databaseURL: ''
+            });
+            const [firebaseConnected, setFirebaseConnected] = useState(false);
+            const [firebaseError, setFirebaseError] = useState("");
             
             const broadcastChannelRef = useRef(null);
+            const firebaseDbRef = useRef(null);
+            const nodesListenerRef = useRef(null);
+            const messagesListenerRef = useRef(null);
 
             const fullText = "INITIALIZING SYSTEM...\nESTABLISHING SECURE CONNECTION...\nGENERATING VIRTUAL IDENTITY...";
 
@@ -624,7 +686,7 @@
                         }
                     };
                 } catch (e) {
-                    console.log('BroadcastChannel not available, using basic mode');
+                    console.log('BroadcastChannel not available');
                 }
 
                 return () => {
@@ -638,6 +700,7 @@
             useEffect(() => {
                 const savedIp = localStorage.getItem("cyber_net_ip");
                 const savedDevice = localStorage.getItem("cyber_net_device");
+                const savedFirebase = localStorage.getItem("cyber_net_firebase");
                 
                 if (!localStorage.getItem("cyber_net_users")) {
                     localStorage.setItem("cyber_net_users", JSON.stringify([]));
@@ -645,6 +708,12 @@
                 
                 if (!localStorage.getItem("cyber_net_messages")) {
                     localStorage.setItem("cyber_net_messages", JSON.stringify([]));
+                }
+
+                if (savedFirebase) {
+                    const config = JSON.parse(savedFirebase);
+                    setFirebaseConfig(config);
+                    initializeFirebase(config);
                 }
                 
                 if (savedIp && savedDevice) {
@@ -688,6 +757,56 @@
                 }
             }, [modalOpen, privateChat, user]);
 
+            const initializeFirebase = (config) => {
+                try {
+                    if (!config.projectId || !config.apiKey || !config.databaseURL) {
+                        setFirebaseError("Configuration incomplète");
+                        return;
+                    }
+
+                    const app = window.firebase.initializeApp({
+                        apiKey: config.apiKey,
+                        projectId: config.projectId,
+                        databaseURL: config.databaseURL
+                    }, 'net_grid_app');
+
+                    firebaseDbRef.current = window.firebase.database(app);
+                    
+                    // Listen to nodes
+                    if (nodesListenerRef.current) {
+                        nodesListenerRef.current();
+                    }
+                    nodesListenerRef.current = firebaseDbRef.current.ref('nodes').on('value', (snapshot) => {
+                        const data = snapshot.val();
+                        if (data) {
+                            const nodesList = Object.values(data);
+                            localStorage.setItem("cyber_net_users", JSON.stringify(nodesList));
+                            setNodes(nodesList);
+                        }
+                    });
+
+                    // Listen to messages
+                    if (messagesListenerRef.current) {
+                        messagesListenerRef.current();
+                    }
+                    messagesListenerRef.current = firebaseDbRef.current.ref('messages').on('value', (snapshot) => {
+                        const data = snapshot.val();
+                        if (data) {
+                            const messagesList = Object.values(data);
+                            localStorage.setItem("cyber_net_messages", JSON.stringify(messagesList));
+                            setMessages(messagesList);
+                        }
+                    });
+
+                    setFirebaseConnected(true);
+                    setFirebaseError("");
+                    localStorage.setItem("cyber_net_firebase", JSON.stringify(config));
+                } catch (error) {
+                    setFirebaseError("Erreur de connexion: " + error.message);
+                    setFirebaseConnected(false);
+                }
+            };
+
             const generateIdentity = () => {
                 const octet = () => Math.floor(Math.random() * 256);
                 const ip = `10.${octet()}.${octet()}.${octet()}`;
@@ -710,7 +829,6 @@
                 localStorage.setItem("cyber_net_ip", identity.virtualIp);
                 localStorage.setItem("cyber_net_device", identity.deviceName);
 
-                const users = JSON.parse(localStorage.getItem("cyber_net_users") || "[]");
                 const newUser = {
                     id: Date.now(),
                     virtualIp: identity.virtualIp,
@@ -719,14 +837,21 @@
                     isOnline: true
                 };
 
+                // Update local storage
+                const users = JSON.parse(localStorage.getItem("cyber_net_users") || "[]");
                 const existingIndex = users.findIndex(u => u.virtualIp === identity.virtualIp);
                 if (existingIndex === -1) {
                     users.push(newUser);
                 } else {
                     users[existingIndex] = newUser;
                 }
-
                 localStorage.setItem("cyber_net_users", JSON.stringify(users));
+
+                // Update Firebase if connected
+                if (firebaseConnected && firebaseDbRef.current) {
+                    firebaseDbRef.current.ref(`nodes/${newUser.id}`).set(newUser);
+                }
+
                 broadcastChannelRef.current?.postMessage({
                     type: 'update_nodes',
                     data: users
@@ -778,6 +903,11 @@
                 }
 
                 localStorage.setItem("cyber_net_users", JSON.stringify(users));
+                
+                if (firebaseConnected && firebaseDbRef.current) {
+                    firebaseDbRef.current.ref(`nodes/${existingUser.id}`).set(existingUser);
+                }
+
                 broadcastChannelRef.current?.postMessage({
                     type: 'update_nodes',
                     data: users
@@ -810,6 +940,10 @@
                 messages.push(newMessage);
                 localStorage.setItem("cyber_net_messages", JSON.stringify(messages));
                 
+                if (firebaseConnected && firebaseDbRef.current) {
+                    firebaseDbRef.current.ref(`messages/${newMessage.id}`).set(newMessage);
+                }
+
                 broadcastChannelRef.current?.postMessage({
                     type: 'update_messages',
                     data: messages
@@ -882,6 +1016,40 @@
                                             <div className="identity-value" style={{color: 'var(--secondary)'}}>{identity.virtualIp}</div>
                                         </div>
                                     </div>
+
+                                    <div className="firebase-section">
+                                        <div className="label">Firebase Config (Optional - pour communication multi-appareils)</div>
+                                        <input 
+                                            type="password"
+                                            className="firebase-input"
+                                            placeholder="API Key"
+                                            value={firebaseConfig.apiKey}
+                                            onChange={(e) => setFirebaseConfig({...firebaseConfig, apiKey: e.target.value})}
+                                        />
+                                        <input 
+                                            type="text"
+                                            className="firebase-input"
+                                            placeholder="Project ID"
+                                            value={firebaseConfig.projectId}
+                                            onChange={(e) => setFirebaseConfig({...firebaseConfig, projectId: e.target.value})}
+                                        />
+                                        <input 
+                                            type="text"
+                                            className="firebase-input"
+                                            placeholder="Database URL (https://..."
+                                            value={firebaseConfig.databaseURL}
+                                            onChange={(e) => setFirebaseConfig({...firebaseConfig, databaseURL: e.target.value})}
+                                        />
+                                        {firebaseError && <div className="firebase-status error">{firebaseError}</div>}
+                                        {firebaseConnected && <div className="firebase-status connected">✓ Firebase Connecté</div>}
+                                        <button 
+                                            className="cyber-button"
+                                            style={{marginTop: '8px', marginBottom: '8px', fontSize: '12px'}}
+                                            onClick={() => initializeFirebase(firebaseConfig)}
+                                        >
+                                            CONNECTER FIREBASE
+                                        </button>
+                                    </div>
                                     
                                     <button 
                                         className="cyber-button" 
@@ -913,6 +1081,7 @@
                                     <div style={{fontSize: '10px', opacity: '0.5'}}>VIRTUAL IP</div>
                                     <div style={{color: 'var(--secondary)'}}>{user.virtualIp}</div>
                                 </div>
+                                {firebaseConnected && <div className="header-status">🔗 CLOUD SYNC</div>}
                                 <button className="invite-btn" onClick={() => {setInviteModalOpen(true); setInviteMessage("");}} title="Inviter une adresse IP">INVITER +</button>
                                 <button className="logout-btn" onClick={handleLogout}>LOGOUT</button>
                             </div>
