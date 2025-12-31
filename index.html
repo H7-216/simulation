@@ -38,7 +38,7 @@
             --shadow-inset-light: inset -5px -5px 10px #ffffff;
             --shadow-inset-dark: inset 5px 5px 10px #babecc;
         }
-        body { background-color: #ebecf0; }
+        body { background-color: #ebecf0; margin: 0; padding: 0; }
         .neu-flat {
             background: #ebecf0;
             box-shadow: var(--shadow-dark), var(--shadow-light);
@@ -54,6 +54,8 @@
             background: #ebecf0;
             box-shadow: var(--shadow-dark), var(--shadow-light);
             transition: all 0.3s ease;
+            border: none;
+            cursor: pointer;
         }
         .neu-btn:hover { transform: translateY(-2px); color: hsl(221, 83%, 53%); }
         .neu-btn:active { box-shadow: var(--shadow-inset-dark), var(--shadow-inset-light); transform: translateY(0); }
@@ -62,6 +64,8 @@
             box-shadow: 5px 5px 10px rgba(59, 130, 246, 0.3), -5px -5px 10px #ffffff;
             color: white;
             transition: all 0.3s ease;
+            border: none;
+            cursor: pointer;
         }
         .neu-btn-primary:hover { transform: translateY(-2px); box-shadow: 6px 6px 12px rgba(59, 130, 246, 0.4), -6px -6px 12px #ffffff; }
         .neu-input {
@@ -69,6 +73,7 @@
             background: transparent;
             outline: none;
             transition: all 0.2s ease;
+            border: none;
         }
         .neu-input:focus { box-shadow: inset 6px 6px 12px #babecc, inset -6px -6px 12px #ffffff; }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
@@ -76,30 +81,29 @@
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
     </style>
 
-    <!-- Scripts -->
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Scripts - Stable versions -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://unpkg.com/framer-motion@10.16.4/dist/framer-motion.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.30.0/index.min.js"></script>
     <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
-    <!-- Pyodide for Local Python -->
     <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
 </head>
 <body class="font-sans antialiased text-slate-700 h-screen overflow-hidden">
     <div id="root" class="h-full"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef, useMemo } = React;
-        const { motion, AnimatePresence } = FramerMotion;
+        const { useState, useEffect, useRef } = React;
 
         const Icon = ({ name, size = 20, className = "" }) => {
-            useEffect(() => { if (window.lucide) window.lucide.createIcons(); });
+            useEffect(() => {
+                if (window.lucide) {
+                    window.lucide.createIcons();
+                }
+            }, [name]);
             return <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>;
         };
 
-        // --- COMPONENTS ---
         const CardVisual = ({ type, number, name, expiry, cvv }) => {
             const getGradient = () => {
                 switch (type.toLowerCase()) {
@@ -111,11 +115,7 @@
                 }
             };
             return (
-                <motion.div
-                    initial={{ rotateY: 90, opacity: 0 }}
-                    animate={{ rotateY: 0, opacity: 1 }}
-                    className={`relative w-full aspect-[1.586/1] rounded-2xl p-6 md:p-8 text-white shadow-2xl overflow-hidden bg-gradient-to-br ${getGradient()}`}
-                >
+                <div className={`relative w-full aspect-[1.586/1] rounded-2xl p-6 md:p-8 text-white shadow-2xl overflow-hidden bg-gradient-to-br ${getGradient()}`}>
                     <div className="relative z-10 flex flex-col justify-between h-full">
                         <div className="flex justify-between items-start">
                             <div className="w-12 h-8 bg-yellow-400/80 rounded-md" />
@@ -129,13 +129,12 @@
                             </div>
                         </div>
                     </div>
-                </motion.div>
+                </div>
             );
         };
 
-        // --- PAGES ---
         const Home = ({ setView }) => (
-            <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="space-y-12">
                 <div className="space-y-4">
                     <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight text-slate-800">
                         Developer <span className="text-primary">Playground</span>
@@ -171,8 +170,12 @@
             useEffect(() => {
                 async function init() {
                     if (window.loadPyodide) {
-                        pyodideRef.current = await window.loadPyodide();
-                        setIsReady(true);
+                        try {
+                            pyodideRef.current = await window.loadPyodide();
+                            setIsReady(true);
+                        } catch (err) {
+                            console.error("Pyodide error:", err);
+                        }
                     }
                 }
                 init();
@@ -189,7 +192,7 @@ sys.stdout = io.StringIO()
                     `);
                     const result = await pyodideRef.current.runPythonAsync(code);
                     const stdout = pyodideRef.current.runPython("sys.stdout.getvalue()");
-                    setOutput(stdout + (result ? "\nReturn: " + result : ""));
+                    setOutput(stdout + (result !== undefined ? "\nReturn: " + result : ""));
                 } catch (err) { setOutput(err.message); }
                 finally { setExecuting(false); }
             };
@@ -226,11 +229,13 @@ sys.stdout = io.StringIO()
             };
 
             const download = async () => {
-                const canvas = await html2canvas(phoneRef.current, { backgroundColor: '#ebecf0' });
-                const link = document.createElement('a');
-                link.download = `imessage-${name}.png`;
-                link.href = canvas.toDataURL();
-                link.click();
+                if (window.html2canvas) {
+                    const canvas = await html2canvas(phoneRef.current, { backgroundColor: '#ebecf0' });
+                    const link = document.createElement('a');
+                    link.download = `imessage-${name}.png`;
+                    link.href = canvas.toDataURL();
+                    link.click();
+                }
             };
 
             return (
@@ -251,7 +256,7 @@ sys.stdout = io.StringIO()
                                 <button onClick={() => setIsMe(false)} className={`flex-1 py-2 rounded-xl font-bold ${!isMe ? 'neu-pressed text-slate-700' : 'neu-flat text-slate-400'}`}>Lui</button>
                             </div>
                             <button onClick={add} className="neu-btn-primary w-full py-3 rounded-xl font-bold">Ajouter Message</button>
-                            <button onClick={download} className="neu-btn w-full py-3 rounded-xl font-bold border border-slate-200">Télécharger PNG</button>
+                            <button onClick={download} className="neu-btn w-full py-3 rounded-xl font-bold">Télécharger PNG</button>
                         </div>
                     </div>
                     <div className="flex-1 flex justify-center overflow-auto p-4">
@@ -274,7 +279,7 @@ sys.stdout = io.StringIO()
             );
         };
 
-        const CardGenerator = () => {
+        const CardTool = () => {
             const [card, setCard] = useState({ type: 'visa', number: '4539 1234 5678 9012', name: 'JOHN DOE', expiry: '12/26' });
             const generate = () => {
                 const types = ['visa', 'mastercard', 'amex', 'paypal'];
@@ -287,7 +292,7 @@ sys.stdout = io.StringIO()
                 });
             };
             return (
-                <div className="max-w-4xl mx-auto space-y-12">
+                <div className="max-w-4xl mx-auto space-y-12 h-full flex flex-col justify-center">
                     <div className="flex flex-col md:flex-row gap-12 items-center">
                         <div className="w-full md:w-1/2 space-y-6">
                             <h2 className="text-3xl font-bold">Card Visualizer</h2>
@@ -300,13 +305,15 @@ sys.stdout = io.StringIO()
             );
         };
 
-        const Layout = ({ children, setView, activeView }) => {
+        const App = () => {
+            const [view, setView] = useState('home');
             const items = [
                 { id: 'home', label: 'Dashboard', icon: 'layout-grid' },
                 { id: 'python', label: 'Python', icon: 'terminal' },
                 { id: 'messages', label: 'iMessage', icon: 'message-square' },
                 { id: 'cards', label: 'Cards', icon: 'credit-card' }
             ];
+
             return (
                 <div className="h-full flex flex-col md:flex-row overflow-hidden">
                     <nav className="w-full md:w-20 lg:w-64 bg-background border-r border-white/20 p-4 flex md:flex-col gap-4">
@@ -314,27 +321,24 @@ sys.stdout = io.StringIO()
                             <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center text-white"><Icon name="terminal" /></div>
                             <span className="font-bold text-xl hidden lg:block">DevTools</span>
                         </div>
-                        {items.map(item => (
-                            <div key={item.id} onClick={() => setView(item.id)} className={`flex items-center gap-4 p-3 rounded-xl cursor-pointer transition-all ${activeView === item.id ? 'neu-pressed text-primary font-bold' : 'text-slate-400 hover:text-slate-600'}`}>
-                                <Icon name={item.icon} />
-                                <span className="hidden lg:block text-sm">{item.label}</span>
-                            </div>
-                        ))}
+                        <div className="flex md:flex-col gap-4 w-full">
+                            {items.map(item => (
+                                <div key={item.id} onClick={() => setView(item.id)} className={`flex items-center gap-4 p-3 rounded-xl cursor-pointer transition-all ${view === item.id ? 'neu-pressed text-primary font-bold' : 'text-slate-400 hover:text-slate-600'}`}>
+                                    <Icon name={item.icon} />
+                                    <span className="hidden lg:block text-sm">{item.label}</span>
+                                </div>
+                            ))}
+                        </div>
                     </nav>
-                    <main className="flex-1 overflow-y-auto p-6 md:p-12"><div className="max-w-7xl mx-auto h-full">{children}</div></main>
+                    <main className="flex-1 overflow-y-auto p-6 md:p-12">
+                        <div className="max-w-7xl mx-auto h-full">
+                            {view === 'home' && <Home setView={setView} />}
+                            {view === 'python' && <PythonTerminal />}
+                            {view === 'messages' && <IMessageSimulator />}
+                            {view === 'cards' && <CardTool />}
+                        </div>
+                    </main>
                 </div>
-            );
-        };
-
-        function App() {
-            const [view, setView] = useState('home');
-            return (
-                <Layout setView={setView} activeView={view}>
-                    {view === 'home' && <Home setView={setView} />}
-                    {view === 'python' && <PythonTerminal />}
-                    {view === 'messages' && <IMessageSimulator />}
-                    {view === 'cards' && <CardGenerator />}
-                </Layout>
             );
         }
 
